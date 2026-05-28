@@ -150,7 +150,7 @@
     <div class="alert alert-info" id="infoAlert"></div>
 
     <div class="toolbar">
-        <input type="file" id="fileInput" accept=".xlsx,.xls">
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
         <input type="text" id="searchInput" class="search-box" placeholder="Buscar por pedido o centro..." disabled>
         <button id="btnExport" class="btn-success" onclick="exportarExcel()" disabled>📥 Exportar Resultado</button>
     </div>
@@ -204,7 +204,6 @@
 
         const reader = new FileReader();
         reader.onload = function(event) {
-            // Se usa setTimeout para permitir que el DOM renderice la barra de progreso
             setTimeout(() => procesarExcel(event.target.result), 100);
         };
         reader.onerror = () => mostrarError("Error al leer el archivo desde el disco.");
@@ -215,7 +214,6 @@
         try {
             actualizarEstado(30, "Analizando estructura del documento...");
             
-            // DENSE: TRUE es crítico para archivos masivos. Reduce memoria drásticamente.
             const workbook = XLSX.read(buffer, { type: 'array', dense: true });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
@@ -226,7 +224,6 @@
             let headerRowIndex = -1;
             let headers = [];
 
-            // Buscador dinámico de fila de encabezados
             for (let i = 0; i < rawData.length; i++) {
                 const row = rawData[i];
                 if (row && row.some(cell => typeof cell === 'string' && cell.trim() === 'Doc.compr.')) {
@@ -242,12 +239,11 @@
                 return;
             }
 
-            actualizarEstado(70, "Agrupando información y calculando unidades...");
+            actualizarEstado(70, "Agrupando información y calculando pesos...");
             
             const agrupado = new Map();
             const unidadesDetectadas = new Set();
 
-            // Mapeo de índices de columnas requeridas para evitar iterar strings en cada fila
             const iUsuario = headers.indexOf("Creado por");
             const iCeSu = headers.indexOf("CeSu");
             const iFecha = headers.indexOf("Creado el");
@@ -258,7 +254,6 @@
             const iCant = headers.indexOf("Ctd.pedido");
             const iPeso = headers.indexOf("Peso bruto");
 
-            // Recorrer filas de datos
             for (let i = headerRowIndex + 1; i < rawData.length; i++) {
                 const row = rawData[i];
                 if (!row || row.length === 0) continue;
@@ -271,8 +266,12 @@
                 
                 const usuario = row[iUsuario] ? String(row[iUsuario]).trim() : "";
                 const unidad = row[iUMP] ? String(row[iUMP]).trim() : "";
+                
                 const cantidad = parseFloat(row[iCant]) || 0;
-                const peso = parseFloat(row[iPeso]) || 0;
+                const pesoUnitario = parseFloat(row[iPeso]) || 0; 
+
+                // Operación correcta para obtener el peso total de esa línea
+                const pesoTotalLinea = cantidad * pesoUnitario;
 
                 if (unidad) unidadesDetectadas.add(unidad);
 
@@ -289,7 +288,9 @@
                 }
 
                 const registro = agrupado.get(key);
-                registro["Peso Total KG"] += peso;
+                
+                // Sumamos el peso ya multiplicado
+                registro["Peso Total KG"] += pesoTotalLinea;
 
                 if (unidad) {
                     registro[unidad] = (registro[unidad] || 0) + cantidad;
@@ -329,13 +330,11 @@
         const thead = document.getElementById('tableHead');
         const tbody = document.getElementById('tableBody');
         
-        // Estructura Base + Dinámicas
         const cabeceras = [
             "Centro Suministrador", "Fecha Pedido", "Pedido", 
             "Tipo Pedido", "Centro", "Entrega", ...columnasDinamicas, "Peso Total KG"
         ];
 
-        // Solo dibujar cabeceras si no existen
         if (thead.innerHTML === '') {
             let trHead = document.createElement('tr');
             cabeceras.forEach(col => {
@@ -349,14 +348,12 @@
 
         tbody.innerHTML = '';
 
-        // Filtrado
         const datosFiltrados = terminoBusqueda 
             ? datos.filter(row => 
                 row["Pedido"].toLowerCase().includes(terminoBusqueda) || 
                 row["Centro"].toLowerCase().includes(terminoBusqueda))
             : datos;
 
-        // Render Seguro: Evita colapsos de DOM. Muestra max 1000 en UI.
         const limiteRender = Math.min(datosFiltrados.length, 1000);
         const info = document.getElementById('infoAlert');
         
@@ -375,7 +372,6 @@
                 let td = document.createElement('td');
                 let val = row[col] !== undefined ? row[col] : 0;
                 
-                // Formato número a 2 decimales si no es entero
                 if (typeof val === 'number' && !Number.isInteger(val)) {
                     val = val.toFixed(2);
                 }
@@ -417,7 +413,6 @@
         }
 
         try {
-            // Formatear datos para exportación asegurando que las dinámicas estén presentes en todas las filas
             const datosAExportar = datosProcesados.map(row => {
                 let nuevaFila = {
                     "Centro Suministrador": row["Centro Suministrador"],
