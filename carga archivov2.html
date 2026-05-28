@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resumen de Pedidos SAP</title>
+
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+<style>
+
+body{
+    font-family: Arial, sans-serif;
+    background:#f4f4f4;
+    margin:20px;
+}
+
+.container{
+    background:white;
+    padding:20px;
+    border-radius:10px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.1);
+}
+
+h2{
+    margin-bottom:20px;
+}
+
+button{
+    background:#198754;
+    color:white;
+    border:none;
+    padding:10px 15px;
+    border-radius:5px;
+    cursor:pointer;
+}
+
+button:disabled{
+    background:gray;
+    cursor:not-allowed;
+}
+
+table{
+    width:100%;
+    border-collapse: collapse;
+    margin-top:20px;
+    font-size:12px;
+}
+
+th{
+    background:#0b5ed7;
+    color:white;
+    padding:8px;
+    border:1px solid #ccc;
+}
+
+td{
+    padding:6px;
+    border:1px solid #ccc;
+    text-align:center;
+}
+
+.progress-container{
+    width:100%;
+    background:#ddd;
+    border-radius:20px;
+    margin-top:15px;
+    display:none;
+}
+
+.progress-bar{
+    width:0%;
+    height:25px;
+    background:#198754;
+    border-radius:20px;
+    text-align:center;
+    color:white;
+    line-height:25px;
+    transition:0.3s;
+}
+
+.status{
+    margin-top:10px;
+    font-weight:bold;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h2>Resumen de Pedidos SAP</h2>
+
+    <input type="file" id="excelFile" accept=".xlsx,.xls">
+
+    <button id="btnExportar" onclick="exportarExcel()" disabled>
+        Exportar Resultado
+    </button>
+
+    <div class="progress-container" id="progressContainer">
+        <div class="progress-bar" id="progressBar">0%</div>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div id="tablaResultado"></div>
+
+</div>
+
+<script>
+
+let resultadoFinal = [];
+
+document.getElementById('excelFile').addEventListener('change', handleFile, false);
+
+function actualizarBarra(valor, texto){
+
+    const barra = document.getElementById("progressBar");
+
+    barra.style.width = valor + "%";
+    barra.innerHTML = valor + "%";
+
+    document.getElementById("status").innerHTML = texto;
+}
+
+function handleFile(e){
+
+    resultadoFinal = [];
+
+    document.getElementById("btnExportar").disabled = true;
+
+    document.getElementById("progressContainer").style.display = "block";
+
+    actualizarBarra(10, "Leyendo archivo...");
+
+    const file = e.target.files[0];
+
+    const reader = new FileReader();
+
+    reader.onload = function(event){
+
+        setTimeout(() => {
+
+            actualizarBarra(35, "Procesando Excel...");
+
+            const data = new Uint8Array(event.target.result);
+
+            const workbook = XLSX.read(data, {type:'array'});
+
+            actualizarBarra(60, "Analizando registros...");
+
+            const sheetName = workbook.SheetNames[0];
+
+            const worksheet = workbook.Sheets[sheetName];
+
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+            procesarDatos(jsonData);
+
+            actualizarBarra(100, "Proceso finalizado");
+
+            document.getElementById("btnExportar").disabled = false;
+
+        }, 500);
+
+    };
+
+    reader.readAsArrayBuffer(file);
+}
+
+function procesarDatos(data){
+
+    const agrupado = {};
+
+    data.forEach(row => {
+
+        const pedido = row["Doc.compr."] || "";
+        const entrega = row["Entrega"] || "";
+        const usuario = row["Creado por"] || "";
+        const fechaPedido = row["Creado el"] || "";
+        const centroSuministrador = row["CeSu"] || "";
+        const centro = row["Ce."] || "";
+        const unidad = row["UMP"] || "";
+        const cantidad = parseFloat(row["Ctd.pedido"]) || 0;
+        const peso = parseFloat(row["Peso bruto"]) || 0;
+
+        const tipoPedido =
+            usuario === "JOBSSAPCOM"
+            ? "Automático"
+            : "Centralizado";
+
+        const key = pedido + "_" + entrega;
+
+        if(!agrupado[key]){
+
+            agrupado[key] = {
+                "Centro Suministrador": centroSuministrador,
+                "Fecha Pedido": fechaPedido,
+                "Pedido": pedido,
+                "Tipo Pedido": tipoPedido,
+                "Centro": centro,
+                "Entrega": entrega,
+                "Peso Total KG": 0
+            };
+        }
+
+        agrupado[key]["Peso Total KG"] += peso;
+
+        if(unidad){
+
+            if(!agrupado[key][unidad]){
+                agrupado[key][unidad] = 0;
+            }
+
+            agrupado[key][unidad] += cantidad;
+        }
+
+    });
+
+    resultadoFinal = Object.values(agrupado);
+
+    mostrarTabla(resultadoFinal);
+}
+
+function mostrarTabla(data){
+
+    if(data.length === 0){
+
+        document.getElementById("status").innerHTML =
+            "No se encontraron datos";
+
+        return;
+    }
+
+    let columnas = new Set();
+
+    data.forEach(item => {
+        Object.keys(item).forEach(key => columnas.add(key));
+    });
+
+    columnas = Array.from(columnas);
+
+    let html = "<table><thead><tr>";
+
+    columnas.forEach(col => {
+        html += `<th>${col}</th>`;
+    });
+
+    html += "</tr></thead><tbody>";
+
+    data.forEach(row => {
+
+        html += "<tr>";
+
+        columnas.forEach(col => {
+            html += `<td>${row[col] || 0}</td>`;
+        });
+
+        html += "</tr>";
+    });
+
+    html += "</tbody></table>";
+
+    document.getElementById("tablaResultado").innerHTML = html;
+}
+
+function exportarExcel(){
+
+    if(resultadoFinal.length === 0){
+
+        alert("No hay datos para exportar");
+
+        return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(resultadoFinal);
+
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Resumen");
+
+    XLSX.writeFile(workbook, "Resumen_Pedidos.xlsx");
+
+    alert("Archivo exportado correctamente");
+}
+
+</script>
+
+</body>
+</html>
