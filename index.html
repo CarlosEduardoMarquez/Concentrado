@@ -157,6 +157,15 @@ function handleFile(e){
 
             const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
+            // --- MEJORA AGREGADA AQUÍ ---
+            if(jsonData.length === 0) {
+                actualizarBarra(100, "Error: No se encontraron datos en la hoja");
+                document.getElementById("btnExportar").disabled = true; 
+                document.getElementById("tablaResultado").innerHTML = ""; 
+                return; 
+            }
+            // -----------------------------
+
             procesarDatos(jsonData);
 
             actualizarBarra(100, "Proceso finalizado");
@@ -290,3 +299,4 @@ function exportarExcel(){
 
 </body>
 </html>
+   
